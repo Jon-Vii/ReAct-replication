@@ -42,10 +42,9 @@ class ReactAgent:
     def run(self, initial_task: str) -> str:
         print(f"Task: {initial_task}")
 
-        prompt_builder_tools = {name: tool.function for name, tool in self.tools.items()}
-        
+        # Pass self.tools (Dict[str, Tool]) directly to PromptBuilder
         messages: List[Dict[str, str]] = [
-            {"role": "user", "content": PromptBuilder.build_base_prompt(initial_task, prompt_builder_tools)}
+            {"role": "user", "content": PromptBuilder.build_base_prompt(initial_task, self.tools)}
         ]
         
         print("--- Initial Prompt to LLM ---")
@@ -67,6 +66,11 @@ class ReactAgent:
                 groups = actions[0].groups()
                 action = groups[0]
                 action_input = groups[1] if len(groups) > 1 else None
+                
+                # ---- DEBUG PRINT ----
+                print(f"DEBUG: Extracted Action: '{action}', Input: '{action_input}'")
+                # ---- END DEBUG PRINT ----
+
                 if action not in self.tools:
                     observation = f"Error: Unknown action {action} with input {action_input}"
                 else:
@@ -95,10 +99,24 @@ class ReactAgent:
     # ------------------------------------------------------------------
     def _chat(self, messages: List[Dict[str, str]]) -> str:
         """One OpenAI ChatCompletion call (separated for mocking in tests)."""
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=self.temperature,
-            max_tokens=2048, # Increased
-        )
-        return response.choices[0].message.content.strip()
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=self.temperature,
+                max_tokens=2048, # Increased
+            )
+            print(f"--- Raw API Response ---\n{response}\n------------------------")
+
+            if response.choices:
+                return response.choices[0].message.content.strip()
+            else:
+                print("Error: API response.choices is None or empty.")
+                # Potentially raise an error or return a specific error message string
+                # For now, to avoid crashing the agent, let's return an error observation string
+                return "Error: No response choices received from LLM."
+
+        except Exception as e:
+            print(f"Error during API call: {e}")
+            # Return an error observation string so the agent can attempt to recover or report
+            return f"Error: API call failed with exception: {str(e)}"
