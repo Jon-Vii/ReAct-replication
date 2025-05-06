@@ -1,0 +1,21 @@
+# Python bytecode
+*.pyc
+
+# Python caches
+__pycache__/
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+env/
+
+# IDE and editor specific files
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# OS-specific files
+.DS_Store
+Thumbs.db
