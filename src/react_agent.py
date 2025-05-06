@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import os
@@ -7,6 +6,7 @@ from typing import Dict, List
 
 import openai
 from .tools import Tool
+from .prompts import PromptBuilder
 
 
 __all__ = ["ReactAgent"]
@@ -23,7 +23,7 @@ class ReactAgent:
         tools: List[Tool],
         temperature: float = 0.0,
         max_turns: int = 10,
-    ) -> None:
+    ):
         self.model = llm_model
         self.tools: Dict[str, Tool] = {tool.name: tool for tool in tools}
         self.temperature = temperature
@@ -32,46 +32,73 @@ class ReactAgent:
         # Configure OpenAI client
         self.client = openai.OpenAI(
             base_url="https://openrouter.ai/api/v1",
-            api_key="KEY",
+            api_key="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",
+            # Ensure OPENAI_API_KEY env var is set
         )
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-    def run(self, prompt: str) -> str:
+    def run(self, initial_task: str) -> str:
+        print(f"Task: {initial_task}")
+
+        prompt_builder_tools = {name: tool.function for name, tool in self.tools.items()}
+        
+        messages: List[Dict[str, str]] = [
+            {"role": "user", "content": PromptBuilder.build_base_prompt(initial_task, prompt_builder_tools)}
+        ]
+        
+        print("--- Initial Prompt to LLM ---")
+        print(messages[0]['content'])
+        print("-----------------------------")
+
         i = 0
-        if i == 0:
-            print(prompt)
-        next_prompt = prompt
         action_re = self.__class__.action_re
+        answer_re = re.compile(r"^Answer: (.*)", re.MULTILINE)
+
         while i < self.max_turns:
             i += 1
-            result = self._chat(next_prompt)
-            print(result)
+            result = self._chat(messages)
+            print(result) # Print LLM's raw output
+            messages.append({"role": "assistant", "content": result})
+
             actions = [action_re.match(a) for a in result.split('\n') if action_re.match(a)]
             if actions:
                 groups = actions[0].groups()
                 action = groups[0]
                 action_input = groups[1] if len(groups) > 1 else None
                 if action not in self.tools:
-                    raise Exception(f"Unknown action: {action}: {action_input}")
-                if action_input:
-                    observation = self.tools[action](action_input)
+                    observation = f"Error: Unknown action {action} with input {action_input}"
                 else:
-                    observation = self.tools[action]()
-                next_prompt = f"Observation: {observation}"
+                    try:
+                        if action_input:
+                            observation = self.tools[action](action_input)
+                        else:
+                            observation = self.tools[action]()
+                    except Exception as e:
+                        observation = f"Error executing action {action}: {str(e)}"
+                
+                observation_msg_content = f"Observation: {observation}"
+                messages.append({"role": "user", "content": observation_msg_content})
             else:
-                return
+                match = answer_re.search(result)
+                if match:
+                    final_answer = match.group(1).strip()
+                    return final_answer
+                else:
+                    return "Agent finished without a formal answer or action."
+
+        return "Agent reached max_turns without a final answer."
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-    def _chat(self, prompt_string: str) -> str:
+    def _chat(self, messages: List[Dict[str, str]]) -> str:
         """One OpenAI ChatCompletion call (separated for mocking in tests)."""
         response = self.client.chat.completions.create(
             model=self.model,
-            messages=[{"role": "user", "content": prompt_string}],
+            messages=messages,
             temperature=self.temperature,
-            max_tokens=512,
+            max_tokens=2048, # Increased
         )
         return response.choices[0].message.content.strip()
